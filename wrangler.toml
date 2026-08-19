@@ -1,0 +1,47 @@
+# lalamove-autobook — single Worker: Telegram bot + Lalamove webhooks + escalation cron.
+#
+# Secrets (set with `npx wrangler secret put <NAME>`):
+#   LALAMOVE_API_KEY, LALAMOVE_API_SECRET  — Lalamove Partner Portal → Developers
+#   TELEGRAM_BOT_TOKEN                     — from @BotFather
+#   TELEGRAM_CHAT_ID                       — the Operator's chat with the bot
+#   TELEGRAM_WEBHOOK_SECRET                — random string, also passed to setWebhook
+#   LALAMOVE_WEBHOOK_SECRET                — random string, embedded in the webhook URL
+#                                            you register in the Lalamove Partner Portal
+#   ONEMAP_EMAIL, ONEMAP_PASSWORD          — OneMap account (token auto-renews every 3 days)
+
+name = "lalamove-autobook"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+[vars]
+LALAMOVE_ENV = "sandbox"          # switch to "production" once tested
+LALAMOVE_MARKET = "SG"
+
+# Your fixed pickup location (the Base) and sender identity.
+BASE_NAME = "Your Bakery"
+BASE_PHONE = "+6591234567"
+BASE_ADDRESS = "1 Example Road, Singapore 123456"
+BASE_LAT = "1.3000000"
+BASE_LNG = "103.8000000"
+
+# Escalation ramp (all fees in SGD, totals not increments — Lalamove replaces
+# the previous priority fee and each new amount must exceed it).
+ASAP_WAIT_MIN = "5"               # organic-match wait before the first bump
+ASAP_STEP_FEE = "1"               # fee total grows by this much per interval
+ASAP_INTERVAL_MIN = "5"
+ORDER_FEE_CAP = "5"               # hard per-order cap, both modes
+
+# Scheduled-order tiers (minutes are relative to pickup time).
+GENTLE_START_MIN = "30"
+GENTLE_END_MIN = "15"
+GENTLE_FEE = "0.5"
+AGGRESSIVE_START_MIN = "10"
+AGGRESSIVE_FEE = "2"
+AGGRESSIVE_FEE_VAN = "4"
