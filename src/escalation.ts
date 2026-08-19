@@ -9,6 +9,8 @@ export interface EscalationConfig {
   asapStepFee: number;
   asapIntervalMin: number;
   orderFeeCap: number;
+  /** Minutes between bumps within the scheduled gentle/aggressive tiers. */
+  scheduledIntervalMin: number;
   gentleStartMin: number;
   gentleEndMin: number;
   gentleFee: number;
@@ -80,18 +82,18 @@ function scheduledTarget(
   if (minutesUntilPickup < -30) return null;
 
   const gentleSpanIntervals =
-    Math.floor((cfg.gentleStartMin - cfg.gentleEndMin) / cfg.asapIntervalMin) + 1;
+    Math.floor((cfg.gentleStartMin - cfg.gentleEndMin) / cfg.scheduledIntervalMin) + 1;
   const minutesIntoGentle =
     cfg.gentleStartMin - Math.max(minutesUntilPickup, cfg.gentleEndMin);
   const gentleIntervals = Math.min(
-    Math.floor(minutesIntoGentle / cfg.asapIntervalMin) + 1,
+    Math.floor(minutesIntoGentle / cfg.scheduledIntervalMin) + 1,
     gentleSpanIntervals,
   );
   let fee = gentleIntervals * cfg.gentleFee;
 
   if (minutesUntilPickup <= cfg.aggressiveStartMin) {
     const aggressiveIntervals =
-      Math.floor((cfg.aggressiveStartMin - minutesUntilPickup) / cfg.asapIntervalMin) + 1;
+      Math.floor((cfg.aggressiveStartMin - minutesUntilPickup) / cfg.scheduledIntervalMin) + 1;
     const perInterval = order.vehicle === "VAN" ? cfg.aggressiveFeeVan : cfg.aggressiveFee;
     fee += aggressiveIntervals * perInterval;
   }

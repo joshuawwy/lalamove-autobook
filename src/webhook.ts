@@ -3,7 +3,7 @@
 // stop tracking orders that reach a terminal status.
 
 import type { Env } from "./env";
-import { removeActiveOrder } from "./state";
+import { addActiveOrder, getOrder, removeActiveOrder } from "./state";
 import { escapeHtml, sendMessage, sendPhoto } from "./telegram";
 import {
   decideWebhookAction,
@@ -53,16 +53,26 @@ export async function handleLalamoveWebhook(env: Env, payload: any): Promise<voi
     for (const stop of stops) {
       const photos: string[] = stop.POP?.imageUrls ?? [];
       if (photos.length > 0) {
-        await sendPhoto(
+        // Dedup re-fires, but only once a photo actually exists (the first POP
+        // event can be a PENDING one without images) and the send succeeded.
+        const key = `webhook:${orderId}:POP`;
+        if (orderId && (await env.STATE.get(key))) return;
+        const sent = await sendPhoto(
           env,
           photos[0],
           `📸 <b>Pickup Photo</b>\n\n<b>Order:</b> <code>${orderId}</code>\n` +
             `<b>From:</b> ${escapeHtml(stop.name ?? "")}\n` +
             `<b>Address:</b> ${escapeHtml(stop.address ?? "")}`,
         );
+        if (orderId && sent?.ok) await env.STATE.put(key, "1", { expirationTtl: 86400 });
         break;
       }
     }
+    return;
+  }
+
+  if (decision.kind === "replaced") {
+    await handleOrderReplaced(env, payload, orderId);
     return;
   }
 
@@ -72,15 +82,42 @@ export async function handleLalamoveWebhook(env: Env, payload: any): Promise<voi
     );
   }
 
-  // Lalamove re-fires stale events; dedup per order+status for 24h.
-  const dedupStatus = status || eventType;
-  if (orderId) {
-    const key = `webhook:${orderId}:${dedupStatus}`;
-    if (await env.STATE.get(key)) return;
-    await env.STATE.put(key, "1", { expirationTtl: 86400 });
+  // Lalamove re-fires stale events; dedup per order+status for 24h. The
+  // marker is written only after Telegram accepts the message, so a failed
+  // send (e.g. 429) can still be delivered by the next re-fire.
+  const dedupKey = orderId ? `webhook:${orderId}:${status || eventType}` : null;
+  if (dedupKey && (await env.STATE.get(dedupKey))) return;
+
+  const sent = await sendMessage(
+    env,
+    formatNotification(payload, eventType, status, previousStatus, orderId),
+  );
+  if (dedupKey && sent?.ok) await env.STATE.put(dedupKey, "1", { expirationTtl: 86400 });
+}
+
+/** Lalamove cancel-and-cloned the order: carry tracking over to the new id. */
+async function handleOrderReplaced(env: Env, payload: any, newOrderId: string): Promise<void> {
+  const prevOrderId: string = payload.data?.prevOrderId ?? "";
+  if (!newOrderId || !prevOrderId) return;
+
+  const key = `webhook:${newOrderId}:REPLACED`;
+  if (await env.STATE.get(key)) return;
+
+  const record = await getOrder(env.STATE, prevOrderId);
+  if (record) {
+    await addActiveOrder(env.STATE, { ...record, orderId: newOrderId });
+    await removeActiveOrder(env.STATE, prevOrderId);
   }
 
-  await sendMessage(env, formatNotification(payload, eventType, status, previousStatus, orderId));
+  const sent = await sendMessage(
+    env,
+    `🔁 <b>Order Replaced by Lalamove</b>\n\n` +
+      `<code>${prevOrderId}</code> → <code>${newOrderId}</code>\n` +
+      (record
+        ? `Tracking carried over (${escapeHtml(record.customerName)}).`
+        : `The original order was no longer tracked — check /status.`),
+  );
+  if (sent?.ok) await env.STATE.put(key, "1", { expirationTtl: 86400 });
 }
 
 function formatNotification(

@@ -10,6 +10,7 @@ const cfg: EscalationConfig = {
   asapStepFee: 1,
   asapIntervalMin: 5,
   orderFeeCap: 5,
+  scheduledIntervalMin: 5,
   gentleStartMin: 30,
   gentleEndMin: 15,
   gentleFee: 0.5,

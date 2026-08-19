@@ -179,7 +179,7 @@ export class LalamoveClient {
     stopIds: [string, string],
     base: BasePlace,
     order: ParsedOrder,
-  ): Promise<{ orderId: string; shareLink: string; status: string }> {
+  ): Promise<{ orderId: string; shareLink: string }> {
     const payload = {
       data: {
         quotationId,
@@ -191,11 +191,13 @@ export class LalamoveClient {
     };
     const result = await this.request("POST", "/v3/orders", payload);
     const data = result.data ?? {};
-    const orderId = data.orderId ?? "";
+    const orderId = data.orderId;
+    if (!orderId) {
+      throw new LalamoveError("Order response missing orderId", undefined, result);
+    }
     return {
       orderId,
       shareLink: data.shareLink ?? `https://web.lalamove.com/track?order=${orderId}`,
-      status: data.status ?? "ASSIGNING_DRIVER",
     };
   }
 

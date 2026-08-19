@@ -23,6 +23,7 @@ export interface Env {
   ASAP_STEP_FEE: string;
   ASAP_INTERVAL_MIN: string;
   ORDER_FEE_CAP: string;
+  SCHEDULED_INTERVAL_MIN: string;
   GENTLE_START_MIN: string;
   GENTLE_END_MIN: string;
   GENTLE_FEE: string;

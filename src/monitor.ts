@@ -51,8 +51,8 @@ export async function runMonitor(env: Env): Promise<void> {
           await sendMessage(
             env,
             `⏳ <b>Still no driver</b>\n\n` +
-              `<code>${orderId}</code> (${escapeHtml(record.customerName)}) is at the ` +
-              `$${cfg.orderFeeCap.toFixed(2)} fee cap.\n\n` +
+              `<code>${orderId}</code> (${escapeHtml(record.customerName)}) is at ` +
+              `$${record.currentFee.toFixed(2)} (auto-ramp cap $${cfg.orderFeeCap.toFixed(2)}).\n\n` +
               `Reply <code>/bump 2 ${orderId}</code> to push higher, or ` +
               `<code>/cancel ${orderId}</code> to give up.`,
           );

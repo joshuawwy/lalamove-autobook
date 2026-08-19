@@ -39,6 +39,7 @@ ASAP_INTERVAL_MIN = "5"
 ORDER_FEE_CAP = "5"               # hard per-order cap, both modes
 
 # Scheduled-order tiers (minutes are relative to pickup time).
+SCHEDULED_INTERVAL_MIN = "5"      # minutes between bumps within the tiers
 GENTLE_START_MIN = "30"
 GENTLE_END_MIN = "15"
 GENTLE_FEE = "0.5"

@@ -86,8 +86,15 @@ async function startDraft(env: Env, chatId: string, text: string): Promise<void>
     return;
   }
 
+  const draftId = crypto.randomUUID().slice(0, 8);
+
   if (candidates.length === 0) {
-    await putDraft(env.STATE, chatId, { order: parsed.order, candidates: [], awaitingLocation: true });
+    await putDraft(env.STATE, chatId, {
+      id: draftId,
+      order: parsed.order,
+      candidates: [],
+      awaitingLocation: true,
+    });
     await sendMessage(
       env,
       `⚠️ Couldn't find <b>${escapeHtml(parsed.order.addressQuery)}</b>.\n\n` +
@@ -96,7 +103,7 @@ async function startDraft(env: Env, chatId: string, text: string): Promise<void>
     return;
   }
 
-  const draft: Draft = { order: parsed.order, candidates };
+  const draft: Draft = { id: draftId, order: parsed.order, candidates };
   if (candidates.length === 1) {
     await quoteAndSendCard(env, chatId, draft, candidates[0]);
     return;
@@ -105,7 +112,9 @@ async function startDraft(env: Env, chatId: string, text: string): Promise<void>
   await putDraft(env.STATE, chatId, draft);
   await sendMessage(env, "📍 Which address is it?", {
     keyboard: buttonRows(
-      candidates.map((c, i) => [{ text: `${c.label} — ${c.address}`.slice(0, 60), data: `addr:${i}` }]),
+      candidates.map((c, i) => [
+        { text: `${c.label} — ${c.address}`.slice(0, 60), data: `addr:${i}:${draft.id}` },
+      ]),
     ),
   });
 }
@@ -135,6 +144,7 @@ async function quoteAndSendCard(
   chatId: string,
   draft: Draft,
   dropoff: GeocodeCandidate,
+  notice = "",
 ): Promise<void> {
   const lalamove = new LalamoveClient(env);
   const payload = buildQuotationPayload(draft.order, basePlace(env), dropoff);
@@ -153,11 +163,12 @@ async function quoteAndSendCard(
     quote: { ...quote, dropoff },
   });
 
-  await sendMessage(env, formatCard(draft.order, dropoff, `${quote.currency} ${quote.price}`), {
+  const card = formatCard(draft.order, dropoff, `${quote.currency} ${quote.price}`);
+  await sendMessage(env, (notice ? `${notice}\n\n` : "") + card, {
     keyboard: buttonRows([
       [
-        { text: "✅ Book it", data: "book" },
-        { text: "❌ Discard", data: "discard" },
+        { text: "✅ Book it", data: `book:${draft.id}` },
+        { text: "❌ Discard", data: `discard:${draft.id}` },
       ],
     ]),
   });
@@ -187,35 +198,46 @@ async function handleCallback(env: Env, cb: any): Promise<void> {
   }
 
   const draft = await getDraft(env.STATE, chatId);
+  // Every button carries the draft nonce it was rendered for, so a button on
+  // a superseded card can never act on a newer draft.
+  const [action, ...rest] = data.split(":");
+  const staleDraft = (draftId: string | undefined) => !draft || draft.id !== draftId;
 
-  if (data.startsWith("addr:")) {
+  if (action === "addr") {
     await answerCallback(env, cb.id);
     if (messageId !== undefined) await clearButtons(env, chatId, messageId);
-    const idx = parseInt(data.slice(5), 10);
+    const idx = parseInt(rest[0] ?? "", 10);
     const candidate = draft?.candidates[idx];
-    if (!draft || !candidate) {
-      await sendMessage(env, "That draft has expired — send the order again.");
+    if (staleDraft(rest[1]) || !candidate) {
+      await sendMessage(env, "That card is no longer current — send the order again.");
       return;
     }
-    await quoteAndSendCard(env, chatId, draft, candidate);
+    await quoteAndSendCard(env, chatId, draft!, candidate);
     return;
   }
 
-  if (data === "discard") {
+  if (action === "discard") {
     await answerCallback(env, cb.id, "Discarded.");
     if (messageId !== undefined) await clearButtons(env, chatId, messageId);
+    if (staleDraft(rest[0])) {
+      await sendMessage(env, "That card is no longer current.");
+      return;
+    }
     await deleteDraft(env.STATE, chatId);
     await sendMessage(env, "🗑 Draft discarded.");
     return;
   }
 
-  if (data === "book") {
+  if (action === "book") {
     await answerCallback(env, cb.id);
     if (messageId !== undefined) await clearButtons(env, chatId, messageId);
-    if (!draft?.quote) {
-      await sendMessage(env, "That draft has expired — send the order again.");
+    if (staleDraft(rest[0]) || !draft?.quote) {
+      await sendMessage(env, "That card is no longer current — send the order again.");
       return;
     }
+    // Consume the draft BEFORE booking so a double-tap (Telegram processes
+    // each callback concurrently) can't book the same quotation twice.
+    await deleteDraft(env.STATE, chatId);
     await bookDraft(env, chatId, draft);
     return;
   }
@@ -232,32 +254,31 @@ async function bookDraft(env: Env, chatId: string, draft: Draft): Promise<void> 
   try {
     result = await lalamove.createOrder(quote.quotationId, quote.stopIds, base, draft.order);
   } catch (e) {
-    // Quotations expire after ~5 minutes; requote once and put up a fresh card.
-    try {
-      const payload = buildQuotationPayload(draft.order, base, quote.dropoff);
-      const fresh = await lalamove.getQuotation(payload);
-      await putDraft(env.STATE, chatId, { ...draft, quote: { ...fresh, dropoff: quote.dropoff } });
+    // Quotations expire after ~5 minutes: for that specific failure, requote
+    // and put up a fresh card. Every other failure (402 empty wallet, 409
+    // duplicate, 422 bad data, ...) must reach the Operator verbatim —
+    // masking it as "quote expired" would loop them forever.
+    const detail = e instanceof LalamoveError ? e.message : String(e);
+    const quoteExpired =
+      e instanceof LalamoveError && /quotation|expire/i.test(e.message);
+    if (quoteExpired) {
+      await quoteAndSendCard(
+        env,
+        chatId,
+        draft,
+        quote.dropoff,
+        "⚠️ The quote had expired — here's a fresh one.",
+      );
+    } else {
       await sendMessage(
         env,
-        `⚠️ The quote had expired — here's a fresh one.\n\n` +
-          formatCard(draft.order, quote.dropoff, `${fresh.currency} ${fresh.price}`),
-        {
-          keyboard: buttonRows([
-            [
-              { text: "✅ Book it", data: "book" },
-              { text: "❌ Discard", data: "discard" },
-            ],
-          ]),
-        },
+        `❌ Booking failed: ${escapeHtml(detail)}\n\n` +
+          `No order was confirmed — send the order again once that's sorted.`,
       );
-    } catch (e2) {
-      const detail = e2 instanceof LalamoveError ? e2.message : String(e2);
-      await sendMessage(env, `❌ Booking failed: ${escapeHtml(detail)}`);
     }
     return;
   }
 
-  await deleteDraft(env.STATE, chatId);
   await addActiveOrder(env.STATE, {
     orderId: result.orderId,
     mode: draft.order.pickupAtMs === null ? "asap" : "scheduled",

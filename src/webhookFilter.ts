@@ -5,6 +5,7 @@
 export type WebhookDecision =
   | { kind: "skip" }
   | { kind: "photo" }
+  | { kind: "replaced" }
   | { kind: "notify"; flushDedup: boolean };
 
 export function decideWebhookAction(
@@ -12,11 +13,21 @@ export function decideWebhookAction(
   status: string,
   previousStatus: string,
 ): WebhookDecision {
-  if (eventType === "WALLET_BALANCE_CHANGED" || eventType === "POD_STATUS_CHANGED") {
+  if (
+    eventType === "WALLET_BALANCE_CHANGED" ||
+    eventType === "POD_STATUS_CHANGED" ||
+    // Fires on every priority-fee change; the monitor already notifies bumps.
+    eventType === "ORDER_AMOUNT_CHANGED"
+  ) {
     return { kind: "skip" };
   }
   if (eventType === "POP_STATUS_CHANGED") {
     return { kind: "photo" };
+  }
+  if (eventType === "ORDER_REPLACED") {
+    // Lalamove cancel-and-cloned the order (e.g. waiting fees added): the
+    // handler must re-key tracking from data.prevOrderId to the new orderId.
+    return { kind: "replaced" };
   }
   if (status === "ASSIGNING_DRIVER" && !previousStatus) {
     return { kind: "skip" }; // initial state right after booking; not useful

@@ -11,6 +11,14 @@ describe("decideWebhookAction", () => {
     expect(decideWebhookAction("POD_STATUS_CHANGED", "PICKED_UP", "").kind).toBe("skip");
   });
 
+  it("skips ORDER_AMOUNT_CHANGED (the monitor already notifies fee bumps)", () => {
+    expect(decideWebhookAction("ORDER_AMOUNT_CHANGED", "", "").kind).toBe("skip");
+  });
+
+  it("routes ORDER_REPLACED to the re-keying handler", () => {
+    expect(decideWebhookAction("ORDER_REPLACED", "", "").kind).toBe("replaced");
+  });
+
   it("sends the pickup photo for POP events", () => {
     expect(decideWebhookAction("POP_STATUS_CHANGED", "PICKED_UP", "").kind).toBe("photo");
   });

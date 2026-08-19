@@ -73,8 +73,9 @@ priority-fee call replaces the previous amount and must exceed it.
 |---|---|---|
 | `ASAP_WAIT_MIN` | 5 | Organic-match wait before the first bump |
 | `ASAP_STEP_FEE` | 1 | Fee total grows by this per interval |
-| `ASAP_INTERVAL_MIN` | 5 | Minutes between bumps |
+| `ASAP_INTERVAL_MIN` | 5 | ASAP: minutes between bumps |
 | `ORDER_FEE_CAP` | 5 | Hard per-order cap (both modes). Raise it if you use vans on scheduled orders — the van tier hits $5 fast |
+| `SCHEDULED_INTERVAL_MIN` | 5 | Scheduled: minutes between bumps within the tiers |
 | `GENTLE_START_MIN` / `GENTLE_END_MIN` / `GENTLE_FEE` | 30 / 15 / 0.5 | Scheduled: gentle tier window and per-interval fee |
 | `AGGRESSIVE_START_MIN` / `AGGRESSIVE_FEE` / `AGGRESSIVE_FEE_VAN` | 10 / 2 / 4 | Scheduled: aggressive tier from N minutes before pickup |
 

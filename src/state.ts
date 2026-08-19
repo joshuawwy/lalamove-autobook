@@ -1,5 +1,7 @@
-// KV-backed state. Single-operator system, so the read-modify-write on the
-// active list is uncontended in practice (one bot chat, one cron).
+// KV-backed state. Active orders are the `order:` keys themselves (listed by
+// prefix) rather than a separate index value: the bot, the Lalamove webhook,
+// and the cron all add/remove orders concurrently, and a single index key
+// maintained by read-modify-write would lose updates (KV has no CAS).
 
 import type { Vehicle } from "./escalation";
 import type { GeocodeCandidate } from "./onemap";
@@ -19,6 +21,9 @@ export interface OrderRecord {
 }
 
 export interface Draft {
+  /** Random nonce carried in the card's callback data, so buttons on a
+   * superseded card can't act on a newer draft. */
+  id: string;
   order: ParsedOrder;
   candidates: GeocodeCandidate[];
   /** Set once an address candidate is chosen and quoted. */
@@ -32,39 +37,38 @@ export interface Draft {
   awaitingLocation?: boolean;
 }
 
-const ACTIVE_KEY = "active";
+const ORDER_PREFIX = "order:";
 const ORDER_TTL = 48 * 3600;
 const DRAFT_TTL = 30 * 60;
 
 export async function getActiveOrderIds(kv: KVNamespace): Promise<string[]> {
-  const raw = await kv.get(ACTIVE_KEY);
-  return raw ? (JSON.parse(raw) as string[]) : [];
-}
-
-async function putActiveOrderIds(kv: KVNamespace, ids: string[]): Promise<void> {
-  await kv.put(ACTIVE_KEY, JSON.stringify(ids));
-}
-
-export async function addActiveOrder(kv: KVNamespace, record: OrderRecord): Promise<void> {
-  await kv.put(`order:${record.orderId}`, JSON.stringify(record), { expirationTtl: ORDER_TTL });
-  const ids = await getActiveOrderIds(kv);
-  if (!ids.includes(record.orderId)) {
-    await putActiveOrderIds(kv, [...ids, record.orderId]);
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const res = await kv.list({ prefix: ORDER_PREFIX, cursor });
+    for (const key of res.keys) ids.push(key.name.slice(ORDER_PREFIX.length));
+    if (res.list_complete) return ids;
+    cursor = res.cursor;
   }
 }
 
+export async function addActiveOrder(kv: KVNamespace, record: OrderRecord): Promise<void> {
+  await kv.put(`${ORDER_PREFIX}${record.orderId}`, JSON.stringify(record), {
+    expirationTtl: ORDER_TTL,
+  });
+}
+
 export async function getOrder(kv: KVNamespace, orderId: string): Promise<OrderRecord | null> {
-  const raw = await kv.get(`order:${orderId}`);
+  const raw = await kv.get(`${ORDER_PREFIX}${orderId}`);
   return raw ? (JSON.parse(raw) as OrderRecord) : null;
 }
 
 export async function updateOrder(kv: KVNamespace, record: OrderRecord): Promise<void> {
-  await kv.put(`order:${record.orderId}`, JSON.stringify(record), { expirationTtl: ORDER_TTL });
+  await addActiveOrder(kv, record);
 }
 
 export async function removeActiveOrder(kv: KVNamespace, orderId: string): Promise<void> {
-  const ids = await getActiveOrderIds(kv);
-  await putActiveOrderIds(kv, ids.filter((id) => id !== orderId));
+  await kv.delete(`${ORDER_PREFIX}${orderId}`);
 }
 
 // One draft at a time per chat — the Operator books one order per conversation turn.

@@ -13,6 +13,7 @@ export function escalationConfig(env: Env): EscalationConfig {
     asapStepFee: num(env.ASAP_STEP_FEE, 1),
     asapIntervalMin: num(env.ASAP_INTERVAL_MIN, 5),
     orderFeeCap: num(env.ORDER_FEE_CAP, 5),
+    scheduledIntervalMin: num(env.SCHEDULED_INTERVAL_MIN, 5),
     gentleStartMin: num(env.GENTLE_START_MIN, 30),
     gentleEndMin: num(env.GENTLE_END_MIN, 15),
     gentleFee: num(env.GENTLE_FEE, 0.5),
