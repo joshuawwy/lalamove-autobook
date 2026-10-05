@@ -26,7 +26,7 @@ The Python pipeline remains the reference, not the deliverable.
 
 ## Consequences
 
-- Setup collapses to four free accounts and one `wrangler deploy`; nothing to
+- Setup collapses to four free accounts and one `cf deploy` (`wrangler deploy` before 5 Oct 2026); nothing to
   keep alive; free tier covers a small business's volume comfortably.
 - The battle-tested Python logic (fee-anchor shift, webhook dedup semantics,
   HMAC signing) had to be ported faithfully — unit tests pin the ported

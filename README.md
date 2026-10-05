@@ -66,7 +66,7 @@ Cloudflare), eight secrets, one deploy. Sandbox first, then production.
 
 ## Escalation configuration
 
-All in `wrangler.toml` `[vars]`, fees in SGD. Fees are **totals**: Lalamove's
+All in `cloudflare.config.ts` (the `bindings.text(...)` entries under `env`), fees in SGD. Fees are **totals**: Lalamove's
 priority-fee call replaces the previous amount and must exceed it.
 
 | Var | Default | Meaning |
@@ -100,7 +100,8 @@ the cap — deliberate operator action always wins.
 ```sh
 npm test            # vitest — ramp, parsing, signing, webhook filtering
 npm run typecheck
-npx wrangler dev    # local dev server
+npm run dev         # local dev server (cf dev)
+npm run check       # cf deploy --dry-run: builds and checks, uploads nothing
 ```
 
 MIT licensed. Built by [TouristPads](https://touristpads.com) / [@joshuawwy](https://github.com/joshuawwy).

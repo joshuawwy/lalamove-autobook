@@ -11,7 +11,7 @@ export interface Env {
   ONEMAP_EMAIL: string;
   ONEMAP_PASSWORD: string;
 
-  // Vars (wrangler.toml)
+  // Vars (cloudflare.config.ts)
   LALAMOVE_ENV: string;
   LALAMOVE_MARKET: string;
   BASE_NAME: string;

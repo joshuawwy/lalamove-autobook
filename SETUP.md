@@ -4,7 +4,7 @@ This file is written for an AI coding assistant (any vendor) driving the
 setup on behalf of a non-technical operator. Assistant: follow the phases in
 order, run the commands yourself, and ask the operator only for the items
 marked **ASK THE OPERATOR**. Never paste secrets into chat logs you don't
-control; put them straight into `wrangler secret put` prompts.
+control; put them straight into `npx wrangler secret put` prompts.
 
 The result: a Cloudflare Worker running a private Telegram bot that books
 Lalamove deliveries from the operator's fixed pickup location, with automatic
@@ -12,7 +12,7 @@ priority-fee escalation while Lalamove searches for a driver.
 
 ## Phase 0 — prerequisites
 
-- Node.js 18+ and npm (`node --version`). Install from nodejs.org if missing.
+- Node.js 22+ and npm (`node --version`). Install from nodejs.org if missing.
 - This repository cloned locally; run all commands from the repo root.
 - `npm install`
 - Sanity check the code before touching accounts: `npm test` and
@@ -52,19 +52,19 @@ under Workers & Pages → Overview).
 
 ## Phase 2 — configure
 
-1. Export Cloudflare credentials for non-interactive wrangler (do not commit
+1. Export Cloudflare credentials for non-interactive `cf` and wrangler (do not commit
    them; put them in the shell environment only):
    ```sh
    export CLOUDFLARE_API_TOKEN=...   # from 1d
    export CLOUDFLARE_ACCOUNT_ID=...  # from 1d
    ```
-2. Create the KV namespace and copy its id into `wrangler.toml`:
+2. Create the KV namespace and copy its id into `cloudflare.config.ts`:
    ```sh
-   npx wrangler kv namespace create STATE
+   npx cf kv namespaces create --title lalamove-autobook-STATE
    ```
-   Replace `REPLACE_WITH_YOUR_KV_NAMESPACE_ID` in `wrangler.toml` with the id
-   it prints.
-3. Edit the `[vars]` block in `wrangler.toml`:
+   Replace `REPLACE_WITH_YOUR_KV_NAMESPACE_ID` in `cloudflare.config.ts` with the
+   `id` it prints (cf answers in JSON).
+3. Edit the `bindings.text(...)` values under `env` in `cloudflare.config.ts`:
    - `BASE_NAME`, `BASE_PHONE` — the business name and a contact phone the
      driver can call (`+65...`).
    - `BASE_ADDRESS` — the full pickup address, including postal code.
@@ -82,21 +82,26 @@ Generate two random webhook secrets first:
 openssl rand -hex 16   # run twice, once per secret below
 ```
 
-Set all eight secrets (each command prompts for the value):
+Set all eight secrets (each command prompts for the value). `cf` has no
+`secret put` yet, so this step uses wrangler; `--name` is needed because the
+project's settings live in `cloudflare.config.ts`, which names all eight with
+`bindings.secret()`. Keep it that way: `cf deploy` deletes any secret on the
+Worker that `cloudflare.config.ts` does not name, so a new secret is added in
+both places.
 ```sh
-npx wrangler secret put LALAMOVE_API_KEY
-npx wrangler secret put LALAMOVE_API_SECRET
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_CHAT_ID          # placeholder "0" for now; fixed in Phase 4
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET   # first random hex
-npx wrangler secret put LALAMOVE_WEBHOOK_SECRET   # second random hex
-npx wrangler secret put ONEMAP_EMAIL
-npx wrangler secret put ONEMAP_PASSWORD
+npx wrangler secret put LALAMOVE_API_KEY --name lalamove-autobook
+npx wrangler secret put LALAMOVE_API_SECRET --name lalamove-autobook
+npx wrangler secret put TELEGRAM_BOT_TOKEN --name lalamove-autobook
+npx wrangler secret put TELEGRAM_CHAT_ID --name lalamove-autobook          # placeholder "0" for now; fixed in Phase 4
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET --name lalamove-autobook   # first random hex
+npx wrangler secret put LALAMOVE_WEBHOOK_SECRET --name lalamove-autobook   # second random hex
+npx wrangler secret put ONEMAP_EMAIL --name lalamove-autobook
+npx wrangler secret put ONEMAP_PASSWORD --name lalamove-autobook
 ```
 
 Deploy:
 ```sh
-npx wrangler deploy
+npm run deploy        # cf deploy
 ```
 Note the Worker URL it prints, e.g. `https://lalamove-autobook.<subdomain>.workers.dev`.
 `curl https://<worker-url>/health` should return `OK`.
@@ -114,7 +119,7 @@ Note the Worker URL it prints, e.g. `https://lalamove-autobook.<subdomain>.worke
    Because `TELEGRAM_CHAT_ID` is still the placeholder, the bot replies
    "This bot is private. (Your chat id is `<number>`.)". Set it for real:
    ```sh
-   npx wrangler secret put TELEGRAM_CHAT_ID
+   npx wrangler secret put TELEGRAM_CHAT_ID --name lalamove-autobook
    ```
    (Worker secrets take effect immediately; no redeploy needed.) `/start`
    should now return the usage message.
@@ -138,15 +143,15 @@ confirmation card with a quoted price, then **✅ Book it** books a sandbox
 order and a booked message with a tracking link arrives. `/status` shows the
 order. `/cancel` cancels it. Sandbox orders cost nothing and no driver comes.
 
-If a step fails, read the Worker logs: `npx wrangler tail`.
+If a step fails, read the Worker logs: `npx wrangler tail lalamove-autobook`.
 
 ## Phase 6 — go to production
 
 Once the operator's production keys are approved and the wallet is topped up:
-1. `npx wrangler secret put LALAMOVE_API_KEY` / `LALAMOVE_API_SECRET` with the
+1. `npx wrangler secret put LALAMOVE_API_KEY --name lalamove-autobook` / `LALAMOVE_API_SECRET` with the
    production values.
-2. Change `LALAMOVE_ENV` to `"production"` in `wrangler.toml`, then
-   `npx wrangler deploy`.
+2. Change `LALAMOVE_ENV` to `"production"` in `cloudflare.config.ts`, then
+   `npm run deploy`.
 3. **ASK THE OPERATOR** to set the same webhook URL in the portal's
    **Production** webhook settings (webhooks are configured per environment).
 4. Book one small real order at a quiet time to verify end-to-end, watching
@@ -159,5 +164,5 @@ Once the operator's production keys are approved and the wallet is topped up:
   escalation cron. OneMap tokens renew themselves.
 - Wallet top-ups happen at wallet.lalamove.com; a 402 error in a booking
   reply means the wallet is empty.
-- To change escalation behavior, edit the `[vars]` in `wrangler.toml` and
-  `npx wrangler deploy` again.
+- To change escalation behavior, edit the `bindings.text(...)` values in
+  `cloudflare.config.ts` and `npm run deploy` again.
